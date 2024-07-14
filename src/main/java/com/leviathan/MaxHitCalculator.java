@@ -1,60 +1,64 @@
 package com.leviathan;
 
+import com.google.inject.Inject;
+import com.google.inject.Singleton;
 import com.leviathan.model.*;
 import lombok.RequiredArgsConstructor;
-import net.runelite.api.Skill;
+import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Client;
+import net.runelite.client.game.ItemManager;
+import net.runelite.http.api.item.ItemEquipmentStats;
+import net.runelite.http.api.item.ItemStats;
 
-
+@Slf4j
+@Singleton
 @RequiredArgsConstructor
 public class MaxHitCalculator {
 
-	private MaxHitData input;
+	@Inject
+	private Client client;
 
-    // 1. Gear + void + tbow
-    // 2. Current range level (including potions)
-    // 3. Prayers being prayed
-    public int calculate() {
-//		[[0.5 *  r_str * (equip_r_str + 64) / 640 ] * gear_bonus]
-        int maxHit = getRangedStrengthBonus(input);
+	@Inject
+	private ItemManager itemManager;
 
-		// Compute the total range strength of all equipment
-
-		maxHit *= (input.getEquipmentStats().getStrengthRanged() + 64);
-		maxHit += 320;
-		maxHit /= 640;
-		return maxHit;
+    public int calcMaxHit(MaxHitData input) {
+		// [[0.5 + r_str * (equip_r_str + 64) / 640 ] * gear_bonus]
+        int rangeStr = calculateEffectiveRangeStr(input);
+		int equipmentStrength = calcEquipmentRangeStr(client.getLocalPlayer().getPlayerComposition().getEquipmentIds()) + 64;
+		// TODO factor in Tbow's gear bonus
+		return (int) (0.5 + (rangeStr * equipmentStrength)) / 640;
     }
 
-	private int calculateEquipmentRangeStrengthBonus(MaxHitData input) {
-		return 0;
+
+	private int calcEquipmentRangeStr(int[] equippedItems) {
+		int rangedStrengthBonus = 0;
+        for (int id : equippedItems) {
+			if (id < 512) continue; // Not a valid item
+			id -= 512;
+			ItemStats s = itemManager.getItemStats(id, true);
+			ItemEquipmentStats stats = s.getEquipment();
+			if (stats != null) {
+				log.info("Calculated equipment range bonus for id: {} ({})", id, s.getEquipment().getRstr());
+				rangedStrengthBonus += s.getEquipment().getRstr();
+			}
+		}
+		return rangedStrengthBonus;
 	}
 
 
-    private int getRangedStrengthBonus(MaxHitData input) {
-		int rngStrength = input.getPlayerSkills().get(Skill.RANGED) + input.getPlayerBoosts().get(Skill.RANGED);
+	private int calculateEffectiveRangeStr(MaxHitData input) {
+		// [(Range level + boost) * prayer bonus + attack style + 8] * void modifier
+		int rangeLevelAndBoost = (input.getRangedLevel() + input.getRangedBoost());
 
-		Prayer offensivePrayer = input.getOffensivePrayer();
-		if (offensivePrayer != null)
-			rngStrength = (int) (rngStrength * offensivePrayer.getStrengthMod());
+		OffensivePrayer offensivePrayer = input.getOffensivePrayer();
+		if (offensivePrayer != OffensivePrayer.NONE)
+			rangeLevelAndBoost = (int) (rangeLevelAndBoost * offensivePrayer.getStrengthMod());
 
-		if (input.getWeaponMode().getCombatFocus() == CombatFocus.ACCURATE)
-			rngStrength += 3;
+		if (input.getWeaponMode() == AttackStyle.ACCURATE)
+			rangeLevelAndBoost += 3;
 
-		rngStrength += 8;
-
-//		float voidLevel = voidLevel(input);
-		float voidLevel = 2;
-		if (voidLevel == 2)
-			rngStrength = (int) (rngStrength * 1.125f);
-		else if (voidLevel == 1)
-			rngStrength = (int) (rngStrength * 1.125f);
-
-		// unsure whether this should be here or in effectiveRangedStrength
-		// unlike tbow accuracy, this one could make a difference
-//		if (EquipmentRequirement.TBOW.isSatisfied(input))
-//			rngStrength = (int) (rngStrength * tbowDmgModifier(input));
-
-
-		return rngStrength;
+		rangeLevelAndBoost += 8;
+		// TODO Void calcs here
+		return rangeLevelAndBoost;
 	}
 }

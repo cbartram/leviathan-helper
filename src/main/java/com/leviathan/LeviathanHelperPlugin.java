@@ -5,6 +5,7 @@ import javax.inject.Inject;
 
 import com.leviathan.model.AttackStyle;
 import com.leviathan.model.MaxHitData;
+import com.leviathan.model.OffensivePrayer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.GameStateChanged;
@@ -38,7 +39,8 @@ public class LeviathanHelperPlugin extends Plugin
 
 	private HealthManager healthManager;
 	private MaxHitData maxHitData;
-	private AttackStyle attackStyle
+	private MaxHitCalculator calc;
+	private AttackStyle attackStyle;
 
 
 	// Highlight leviathan when max hit will trigger enrage
@@ -53,36 +55,37 @@ public class LeviathanHelperPlugin extends Plugin
 			healthManager = new HealthManager(npcManager);
 			maxHitData = new MaxHitData();
 
-			Player player = client.getLocalPlayer();
-			PlayerComposition playerComposition = player.getPlayerComposition();
-			maxHitData.setEquipmentRangedStrength(calcEquipmentRangeStr(playerComposition.getEquipmentIds()));
-
 			int attackStyleVarbit = client.getVarpValue(VarPlayer.ATTACK_STYLE);
 			int equippedWeaponTypeVarbit = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
 			int castingModeVarbit = client.getVarbitValue(Varbits.DEFENSIVE_CASTING_MODE);
 			log.info("Attack Style Varbit: {}, equippedWeaponTypeVarbit: {}, castingModeVarbit: {}", attackStyleVarbit, equippedWeaponTypeVarbit, castingModeVarbit);
 			maxHitData.setWeaponMode(getAttackStyle(equippedWeaponTypeVarbit, attackStyleVarbit, castingModeVarbit));
+			maxHitData.setOffensivePrayer(getOffensivePrayer());
+			maxHitData.setRangedLevel(client.getRealSkillLevel(Skill.RANGED));
+			maxHitData.setRangedBoost(client.getBoostedSkillLevel(Skill.RANGED) - maxHitData.getRangedLevel());
 
-			maxHitData.setPlayerBoosts();
-			maxHitData.setOffensivePrayer();
-			maxHitData.setPlayerSkills();
+			int maxHit = calc.calcMaxHit(maxHitData);
+			log.info("Players Max Hit is: {}", maxHit);
 		}
 	}
 
+	private OffensivePrayer getOffensivePrayer() {
+		int rigour = client.getVarbitValue(Varbits.PRAYER_RIGOUR);
+		int eagleEye = client.getVarbitValue(Varbits.PRAYER_EAGLE_EYE);
+		int hawkEye = client.getVarbitValue(Varbits.PRAYER_HAWK_EYE);
+		int sharpEye = client.getVarbitValue(Varbits.PRAYER_SHARP_EYE);
 
-	private int calcEquipmentRangeStr(int[] equippedItems) {
-		int rangedStrengthBonus = 0;
-        for (int id : equippedItems) {
-			if (id < 512) continue; // Not a valid item
-			id -= 512;
-			ItemStats s = itemManager.getItemStats(id, true);
-			ItemEquipmentStats stats = s.getEquipment();
-			if (stats != null) {
-				log.info("Calculated equipment range bonus for id: {} ({})", id, s.getEquipment().getRstr());
-				rangedStrengthBonus += s.getEquipment().getRstr();
-			}
+		if(rigour == 1) {
+			return OffensivePrayer.RIGOUR;
+		} else if(eagleEye == 1) {
+			return OffensivePrayer.EAGLE_EYE;
+		} else if(hawkEye == 1) {
+			return OffensivePrayer.HAWK_EYE;
+		} else if(sharpEye == 1) {
+			return OffensivePrayer.SHARP_EYE;
 		}
-		return rangedStrengthBonus;
+
+		return OffensivePrayer.NONE;
 	}
 
 	@Override

@@ -11,6 +11,6 @@ public class WeaponMode
 	private final String displayName;
 
 	@Getter
-	private final CombatFocus combatFocus;
+	private final AttackStyle attackStyle;
 
 }
