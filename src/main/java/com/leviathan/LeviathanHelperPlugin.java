@@ -2,16 +2,21 @@ package com.leviathan;
 
 import com.google.inject.Provides;
 import javax.inject.Inject;
+
+import com.leviathan.model.AttackStyle;
+import com.leviathan.model.MaxHitData;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
+import net.runelite.api.*;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.kit.KitType;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.NPCManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.http.api.item.ItemEquipmentStats;
+import net.runelite.http.api.item.ItemStats;
 
 @Slf4j
 @PluginDescriptor(
@@ -28,7 +33,12 @@ public class LeviathanHelperPlugin extends Plugin
 	@Inject
 	private NPCManager npcManager;
 
+	@Inject
+	private ItemManager	itemManager;
+
 	private HealthManager healthManager;
+	private MaxHitData maxHitData;
+	private AttackStyle attackStyle
 
 
 	// Highlight leviathan when max hit will trigger enrage
@@ -38,8 +48,41 @@ public class LeviathanHelperPlugin extends Plugin
 	@Override
 	protected void startUp() throws Exception
 	{
-		log.info("Leviathan Helper Plugin started (v1.0.0)!");
-		healthManager = new HealthManager(npcManager);
+		if(client.getGameState() == GameState.LOGGED_IN) {
+			log.info("Leviathan Helper Plugin started (v1.0.0)!");
+			healthManager = new HealthManager(npcManager);
+			maxHitData = new MaxHitData();
+
+			Player player = client.getLocalPlayer();
+			PlayerComposition playerComposition = player.getPlayerComposition();
+			maxHitData.setEquipmentRangedStrength(calcEquipmentRangeStr(playerComposition.getEquipmentIds()));
+
+			int attackStyleVarbit = client.getVarpValue(VarPlayer.ATTACK_STYLE);
+			int equippedWeaponTypeVarbit = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
+			int castingModeVarbit = client.getVarbitValue(Varbits.DEFENSIVE_CASTING_MODE);
+			log.info("Attack Style Varbit: {}, equippedWeaponTypeVarbit: {}, castingModeVarbit: {}", attackStyleVarbit, equippedWeaponTypeVarbit, castingModeVarbit);
+			maxHitData.setWeaponMode(getAttackStyle(equippedWeaponTypeVarbit, attackStyleVarbit, castingModeVarbit));
+
+			maxHitData.setPlayerBoosts();
+			maxHitData.setOffensivePrayer();
+			maxHitData.setPlayerSkills();
+		}
+	}
+
+
+	private int calcEquipmentRangeStr(int[] equippedItems) {
+		int rangedStrengthBonus = 0;
+        for (int id : equippedItems) {
+			if (id < 512) continue; // Not a valid item
+			id -= 512;
+			ItemStats s = itemManager.getItemStats(id, true);
+			ItemEquipmentStats stats = s.getEquipment();
+			if (stats != null) {
+				log.info("Calculated equipment range bonus for id: {} ({})", id, s.getEquipment().getRstr());
+				rangedStrengthBonus += s.getEquipment().getRstr();
+			}
+		}
+		return rangedStrengthBonus;
 	}
 
 	@Override
@@ -51,6 +94,52 @@ public class LeviathanHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameTick() {
 
+	}
+
+
+	 private AttackStyle getAttackStyle(int equippedWeaponType, int attackStyleIndex, int castingMode) {
+		AttackStyle[] attackStyles = getWeaponAttackStyles(equippedWeaponType);
+		if (attackStyleIndex < attackStyles.length)
+		{
+			// from script4525
+			// Even though the client has 5 attack styles for Staffs, only attack styles 0-4 are used, with an additional
+			// casting mode set for defensive casting
+			if (attackStyleIndex == 4)
+			{
+				attackStyleIndex += castingMode;
+			}
+
+			attackStyle = attackStyles[attackStyleIndex];
+			if (attackStyle == null)
+			{
+				attackStyle = AttackStyle.OTHER;
+			}
+		}
+		return attackStyle;
+	}
+
+    private AttackStyle[] getWeaponAttackStyles(int weaponType)
+	{
+		// from script4525
+		int weaponStyleEnum = client.getEnum(EnumID.WEAPON_STYLES).getIntValue(weaponType);
+		int[] weaponStyleStructs = client.getEnum(weaponStyleEnum).getIntVals();
+
+		AttackStyle[] styles = new AttackStyle[weaponStyleStructs.length];
+		int i = 0;
+		for (int style : weaponStyleStructs) {
+			StructComposition attackStyleStruct = client.getStructComposition(style);
+			String attackStyleName = attackStyleStruct.getStringValue(ParamID.ATTACK_STYLE_NAME);
+
+			AttackStyle attackStyle = AttackStyle.valueOf(attackStyleName.toUpperCase());
+			if (attackStyle == AttackStyle.OTHER)
+			{
+				// "Other" is used for no style
+				++i;
+				continue;
+			}
+			styles[i++] = attackStyle;
+		}
+		return styles;
 	}
 
 	@Provides
