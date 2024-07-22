@@ -1,7 +1,7 @@
 package com.leviathan;
 
+import com.google.inject.Inject;
 import com.google.inject.Provides;
-import javax.inject.Inject;
 
 import com.leviathan.model.AttackStyle;
 import com.leviathan.model.MaxHitData;
@@ -9,7 +9,9 @@ import com.leviathan.model.OffensivePrayer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
 import net.runelite.api.kit.KitType;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
@@ -37,6 +39,9 @@ public class LeviathanHelperPlugin extends Plugin
 	@Inject
 	private ItemManager	itemManager;
 
+	@Inject
+	private ClientThread clientThread;
+
 	private HealthManager healthManager;
 	private MaxHitData maxHitData;
 	private MaxHitCalculator calc;
@@ -55,17 +60,20 @@ public class LeviathanHelperPlugin extends Plugin
 			healthManager = new HealthManager(npcManager);
 			maxHitData = new MaxHitData();
 
-			int attackStyleVarbit = client.getVarpValue(VarPlayer.ATTACK_STYLE);
-			int equippedWeaponTypeVarbit = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
-			int castingModeVarbit = client.getVarbitValue(Varbits.DEFENSIVE_CASTING_MODE);
-			log.info("Attack Style Varbit: {}, equippedWeaponTypeVarbit: {}, castingModeVarbit: {}", attackStyleVarbit, equippedWeaponTypeVarbit, castingModeVarbit);
-			maxHitData.setWeaponMode(getAttackStyle(equippedWeaponTypeVarbit, attackStyleVarbit, castingModeVarbit));
-			maxHitData.setOffensivePrayer(getOffensivePrayer());
-			maxHitData.setRangedLevel(client.getRealSkillLevel(Skill.RANGED));
-			maxHitData.setRangedBoost(client.getBoostedSkillLevel(Skill.RANGED) - maxHitData.getRangedLevel());
+			clientThread.invokeLater(() -> {
+				int attackStyleVarbit = client.getVarpValue(VarPlayer.ATTACK_STYLE);
+				int equippedWeaponTypeVarbit = client.getVarbitValue(Varbits.EQUIPPED_WEAPON_TYPE);
+				int castingModeVarbit = client.getVarbitValue(Varbits.DEFENSIVE_CASTING_MODE);
+				log.info("Attack Style Varbit: {}, equippedWeaponTypeVarbit: {}, castingModeVarbit: {}", attackStyleVarbit, equippedWeaponTypeVarbit, castingModeVarbit);
+				maxHitData.setWeaponMode(getAttackStyle(equippedWeaponTypeVarbit, attackStyleVarbit, castingModeVarbit));
+				maxHitData.setOffensivePrayer(getOffensivePrayer());
+				maxHitData.setRangedLevel(client.getRealSkillLevel(Skill.RANGED));
+				maxHitData.setRangedBoost(client.getBoostedSkillLevel(Skill.RANGED) - maxHitData.getRangedLevel());
 
-			int maxHit = calc.calcMaxHit(maxHitData);
-			log.info("Players Max Hit is: {}", maxHit);
+				int maxHit = calc.calcMaxHit(maxHitData);
+				log.info(maxHitData.toString());
+				log.info("Players Max Hit is: {}", maxHit);
+			});
 		}
 	}
 
@@ -95,7 +103,7 @@ public class LeviathanHelperPlugin extends Plugin
 	}
 
 	@Subscribe
-	public void onGameTick() {
+	public void onGameTick(GameTick gameTick) {
 
 	}
 
